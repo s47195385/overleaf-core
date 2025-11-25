@@ -1,0 +1,303 @@
+extends ../../../../app/views/layout-marketing
+include ../../../../app/views/_mixins/notification
+
+block entrypointVar
+	- entrypoint = 'modules/agentic-reviewer/pages/reviewer'
+
+block vars
+	- metadata = metadata || {}
+
+block content
+	#main-content.content.content-alt
+		.container
+			.row
+				.col-lg-10.offset-lg-1
+					.card
+						.card-body
+							.text-center
+								h1 Agentic Paper Reviewer
+								p.text-muted AI-powered feedback for finance and economics research papers
+
+							hr.thin
+
+							// Paper submission section
+							.row
+								.col-lg-12
+									h2 Submit Paper for Review
+									p Upload a PDF or select a paper from your local papers directory.
+
+									form#submit-paper-form(data-ol-async-form action='/api/agentic-reviewer/submit' method='POST')
+										input(name='_csrf' type='hidden' value=csrfToken)
+										
+										.form-group
+											label.form-label(for='paperPath') Paper Path
+											input.form-control#paperPath(
+												name='paperPath'
+												type='text'
+												placeholder='/var/lib/overleaf/papers/my_paper.pdf'
+												required
+											)
+											small.form-text.text-muted Enter the full path to your PDF file
+
+										.form-group
+											label.form-label(for='targetVenue') Target Venue (Optional)
+											select.form-control#targetVenue(name='targetVenue')
+												option(value='finance') Finance Journal
+												option(value='economics') Economics Journal
+												option(value='management') Management Journal
+												option(value='fintech') FinTech Conference
+												option(value='other') Other
+
+										.actions
+											button.btn.btn-primary(type='submit')
+												span Submit for Review
+
+							hr.thin
+
+							// Status section
+							.row
+								.col-lg-12
+									h2 Your Reviews
+									#reviews-list
+										p.text-muted Loading your reviews...
+
+							hr.thin
+
+							// Review result section
+							#review-result(style='display: none')
+								h2 Review Result
+								.review-content
+									h3#result-title Paper Title
+									.row
+										.col-sm-4
+											.card.text-center
+												.card-body
+													h3#overall-score -
+													p Overall Score
+
+									h4 Dimension Scores
+									#dimension-scores
+										p Loading...
+
+									h4 Strengths
+									ul#strengths-list
+
+									h4 Areas for Improvement
+									ul#weaknesses-list
+
+									h4 Actionable Feedback
+									#actionable-feedback
+										p Loading...
+
+									h4 Related Work
+									#related-work
+										p Loading...
+
+							hr.thin
+
+							// Local papers browser
+							.row
+								.col-lg-12
+									h2 Local Papers Directory
+									p Papers in your configured directory that can be used as references:
+									#local-papers-list
+										p.text-muted Loading local papers...
+
+							hr.thin
+
+							// Configuration info
+							.row
+								.col-lg-12
+									h3 Configuration
+									.card.bg-light
+										.card-body
+											h5 Environment Variables
+											pre
+												code
+													| AGENTIC_PAPERS_DIR=/var/lib/overleaf/papers
+													| OPENAI_API_KEY=your-openai-api-key
+													| 
+													| # Optional LLM Configuration
+													| AGENTIC_LLM_PROVIDER=openai  # openai, anthropic, ollama, azure
+													| AGENTIC_LLM_MODEL=gpt-4
+											
+											h5 Paper Directory Structure
+											pre
+												code
+													| /var/lib/overleaf/papers/
+													| ├── paper1.pdf
+													| ├── paper2.pdf
+													| ├── finance/
+													| │   ├── asset_pricing.pdf
+													| │   └── market_efficiency.pdf
+													| └── economics/
+													|     ├── macro_policy.pdf
+													|     └── labor_markets.pdf
+
+	script(nonce=scriptNonce).
+		// Initialize the reviewer page
+		document.addEventListener('DOMContentLoaded', function() {
+			loadLocalPapers();
+			loadUserReviews();
+			
+			// Form submission handler
+			const form = document.getElementById('submit-paper-form');
+			form.addEventListener('submit', async function(e) {
+				e.preventDefault();
+				const formData = new FormData(form);
+				const data = {
+					paperPath: formData.get('paperPath'),
+					targetVenue: formData.get('targetVenue'),
+					_csrf: formData.get('_csrf')
+				};
+				
+				try {
+					const response = await fetch('/api/agentic-reviewer/submit', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+						},
+						body: JSON.stringify(data)
+					});
+					
+					const result = await response.json();
+					if (result.success) {
+						alert('Paper submitted! Review ID: ' + result.reviewId);
+						pollReviewStatus(result.reviewId);
+					} else {
+						alert('Error: ' + result.message);
+					}
+				} catch (err) {
+					alert('Error submitting paper: ' + err.message);
+				}
+			});
+		});
+		
+		async function loadLocalPapers() {
+			try {
+				const response = await fetch('/api/agentic-reviewer/local-papers');
+				const data = await response.json();
+				const list = document.getElementById('local-papers-list');
+				
+				if (data.success && data.papers.length > 0) {
+					list.innerHTML = '<ul>' + data.papers.map(p => 
+						'<li><strong>' + escapeHtml(p.title) + '</strong><br>' +
+						'<small class="text-muted">' + escapeHtml(p.path) + '</small>' +
+						' <button class="btn btn-sm btn-link" onclick="selectPaper(\'' + escapeHtml(p.path) + '\')">Select</button></li>'
+					).join('') + '</ul>';
+				} else {
+					list.innerHTML = '<p class="text-muted">No papers found in the local directory. Add PDFs to get started.</p>';
+				}
+			} catch (err) {
+				document.getElementById('local-papers-list').innerHTML = 
+					'<p class="text-danger">Error loading papers: ' + err.message + '</p>';
+			}
+		}
+		
+		async function loadUserReviews() {
+			try {
+				const response = await fetch('/api/agentic-reviewer/reviews');
+				const data = await response.json();
+				const list = document.getElementById('reviews-list');
+				
+				if (data.success && data.reviews.length > 0) {
+					list.innerHTML = '<ul>' + data.reviews.map(r => 
+						'<li><strong>' + escapeHtml(r.title || r.paperPath) + '</strong>' +
+						' - Status: ' + r.status +
+						(r.overallScore ? ' - Score: ' + r.overallScore : '') +
+						' <button class="btn btn-sm btn-link" onclick="viewReview(\'' + r.reviewId + '\')">View</button></li>'
+					).join('') + '</ul>';
+				} else {
+					list.innerHTML = '<p class="text-muted">No reviews yet. Submit a paper to get started.</p>';
+				}
+			} catch (err) {
+				document.getElementById('reviews-list').innerHTML = 
+					'<p class="text-danger">Error loading reviews: ' + err.message + '</p>';
+			}
+		}
+		
+		function selectPaper(path) {
+			document.getElementById('paperPath').value = path;
+		}
+		
+		async function viewReview(reviewId) {
+			try {
+				const response = await fetch('/api/agentic-reviewer/result/' + reviewId);
+				const data = await response.json();
+				
+				if (data.success) {
+					displayReviewResult(data.result);
+				} else {
+					alert(data.message || 'Review not ready yet');
+				}
+			} catch (err) {
+				alert('Error loading review: ' + err.message);
+			}
+		}
+		
+		function displayReviewResult(result) {
+			document.getElementById('review-result').style.display = 'block';
+			document.getElementById('result-title').textContent = result.title;
+			document.getElementById('overall-score').textContent = result.overallScore + '/10';
+			
+			// Display dimension scores
+			const scoresHtml = Object.entries(result.dimensionScores || {}).map(([key, score]) =>
+				'<div class="col-sm-4 mb-2"><div class="card"><div class="card-body text-center">' +
+				'<h5>' + score + '</h5><small>' + key.replace(/_/g, ' ') + '</small></div></div></div>'
+			).join('');
+			document.getElementById('dimension-scores').innerHTML = '<div class="row">' + scoresHtml + '</div>';
+			
+			// Display strengths
+			const strengthsHtml = (result.strengths || []).map(s => '<li>' + escapeHtml(s) + '</li>').join('');
+			document.getElementById('strengths-list').innerHTML = strengthsHtml || '<li>No strengths listed</li>';
+			
+			// Display weaknesses
+			const weaknessesHtml = (result.weaknesses || []).map(w => '<li>' + escapeHtml(w) + '</li>').join('');
+			document.getElementById('weaknesses-list').innerHTML = weaknessesHtml || '<li>No weaknesses listed</li>';
+			
+			// Display actionable feedback
+			const feedbackHtml = (result.actionableFeedback?.priorities || []).map(p =>
+				'<div class="card mb-2"><div class="card-body">' +
+				'<strong>Priority ' + p.priority + ':</strong> ' + escapeHtml(p.recommendation) +
+				'<p class="text-muted small">' + escapeHtml(p.rationale || '') + '</p></div></div>'
+			).join('');
+			document.getElementById('actionable-feedback').innerHTML = feedbackHtml || '<p>No feedback available</p>';
+			
+			// Display related work
+			const relatedHtml = (result.relatedWorkSummaries || []).slice(0, 5).map(p =>
+				'<div class="card mb-2"><div class="card-body">' +
+				'<strong>' + escapeHtml(p.title) + '</strong>' +
+				'<p class="small">' + escapeHtml((p.summary || '').substring(0, 300)) + '...</p></div></div>'
+			).join('');
+			document.getElementById('related-work').innerHTML = relatedHtml || '<p>No related work found</p>';
+		}
+		
+		async function pollReviewStatus(reviewId) {
+			const poll = async () => {
+				try {
+					const response = await fetch('/api/agentic-reviewer/status/' + reviewId);
+					const data = await response.json();
+					
+					if (data.status === 'completed') {
+						loadUserReviews();
+						viewReview(reviewId);
+					} else if (data.status === 'failed') {
+						alert('Review failed: ' + data.error);
+						loadUserReviews();
+					} else {
+						// Continue polling
+						setTimeout(poll, 3000);
+					}
+				} catch (err) {
+					console.error('Error polling status:', err);
+				}
+			};
+			poll();
+		}
+		
+		function escapeHtml(text) {
+			if (!text) return '';
+			const div = document.createElement('div');
+			div.textContent = text;
+			return div.innerHTML;
+		}
