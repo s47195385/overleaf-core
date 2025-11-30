@@ -8,7 +8,8 @@ import path from 'path'
 import os from 'os'
 import crypto from 'crypto'
 
-const CONFIG_DIR = path.join(os.homedir(), '.overleaf-sync')
+// Allow override via environment variable for testing
+const CONFIG_DIR = process.env.OVERLEAF_SYNC_CONFIG_DIR || path.join(os.homedir(), '.overleaf-sync')
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
 const PROJECTS_FILE = path.join(CONFIG_DIR, 'projects.json')
 

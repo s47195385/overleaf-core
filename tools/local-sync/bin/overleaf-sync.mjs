@@ -8,6 +8,7 @@
 import { Command } from 'commander'
 import chalk from 'chalk'
 import readline from 'readline'
+import fs from 'fs-extra'
 
 import config from '../src/config.mjs'
 import SyncManager from '../src/sync-manager.mjs'

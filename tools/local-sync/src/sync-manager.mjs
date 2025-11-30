@@ -46,7 +46,7 @@ export class SyncManager {
     this.config = await config.loadConfig()
 
     if (!this.config.credentials) {
-      throw new Error('No credentials configured. Please run "overleaf-sync login" first.')
+      throw new Error('No credentials configured. Please configure credentials first.')
     }
 
     this.client = new OverleafClient(this.config.overleafUrl, this.config.credentials)
@@ -341,6 +341,8 @@ export class SyncManager {
 
   /**
    * Handle a local file change
+   * Note: Currently only logs changes. File upload functionality is not yet implemented.
+   * The sync is performed periodically via syncAll() instead of on each file change.
    */
   async handleLocalChange(filePath) {
     // Find the project directory this file belongs to
@@ -352,9 +354,9 @@ export class SyncManager {
     const mapping = await config.getProjectMapping(projectPath)
 
     if (mapping) {
-      console.log(`Change detected in project: ${mapping.projectName}`)
-      // You could implement upload of changed files here
-      // For now, just log the change
+      console.log(`Change detected in project: ${mapping.projectName} (will sync on next interval)`)
+      // Note: Real-time upload not yet implemented.
+      // Changes will be synced during the next periodic sync.
     } else {
       console.log(`Change detected in unmapped directory: ${projectDirName}`)
     }

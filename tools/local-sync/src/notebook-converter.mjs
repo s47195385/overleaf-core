@@ -1128,20 +1128,45 @@ export async function convertNotebookToLatex(nbPath, outputPath = null, rootDir 
   
   await fs.writeFile(tmpNbPath, JSON.stringify(nbTmp, null, 2), 'utf8')
   
-  // Run nbconvert
+  // Run nbconvert using array form to avoid command injection
   try {
-    execSync(`python -m nbconvert --to latex --output "${path.basename(tmpBase)}" "${tmpNbPath}"`, {
+    execSync('python', {
+      stdio: 'pipe',
+      cwd: path.dirname(tmpNbPath),
+      input: '',
+    })
+  } catch {
+    // Check if python is available, will throw if not
+  }
+  
+  // Use spawnSync with array arguments to avoid command injection
+  const { spawnSync } = await import('child_process')
+  
+  let result = spawnSync('python', [
+    '-m', 'nbconvert',
+    '--to', 'latex',
+    '--output', path.basename(tmpBase),
+    tmpNbPath
+  ], {
+    stdio: 'pipe',
+    cwd: path.dirname(tmpNbPath),
+  })
+  
+  if (result.status !== 0) {
+    // Try with python3
+    result = spawnSync('python3', [
+      '-m', 'nbconvert',
+      '--to', 'latex',
+      '--output', path.basename(tmpBase),
+      tmpNbPath
+    ], {
       stdio: 'pipe',
       cwd: path.dirname(tmpNbPath),
     })
-  } catch {
-    try {
-      execSync(`python3 -m nbconvert --to latex --output "${path.basename(tmpBase)}" "${tmpNbPath}"`, {
-        stdio: 'pipe',
-        cwd: path.dirname(tmpNbPath),
-      })
-    } catch (error) {
-      throw new Error(`nbconvert failed: ${error.message}`)
+    
+    if (result.status !== 0) {
+      const errorMsg = result.stderr ? result.stderr.toString() : 'Unknown error'
+      throw new Error(`nbconvert failed: ${errorMsg}`)
     }
   }
   
@@ -1272,17 +1297,13 @@ ${frontmatter}${body.trim()}
  * Check if nbconvert is available
  */
 export async function checkNbconvert() {
-  try {
-    execSync('python -m nbconvert --version', { stdio: 'pipe' })
-    return true
-  } catch {
-    try {
-      execSync('python3 -m nbconvert --version', { stdio: 'pipe' })
-      return true
-    } catch {
-      return false
-    }
-  }
+  const { spawnSync } = await import('child_process')
+  
+  let result = spawnSync('python', ['-m', 'nbconvert', '--version'], { stdio: 'pipe' })
+  if (result.status === 0) return true
+  
+  result = spawnSync('python3', ['-m', 'nbconvert', '--version'], { stdio: 'pipe' })
+  return result.status === 0
 }
 
 export default {
